@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Song Cards</title>
+  <style>
+    :root {
+      --bg: #f6f6f4;
+      --surface: #ffffff;
+      --text: #191919;
+      --muted: #666;
+      --border: #dcdcd8;
+      --accent: #1db954;
+      --accent-text: #0b0b0b;
+      --error: #b3261e;
+      --ok: #1a7f37;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #121212;
+        --surface: #1c1c1c;
+        --text: #f0f0f0;
+        --muted: #a5a5a5;
+        --border: #333;
+        --error: #ff8a80;
+        --ok: #6fdc8c;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    main { max-width: 900px; margin: 0 auto; padding: 32px 16px 64px; }
+    h1 { margin: 0 0 4px; font-size: 28px; }
+    .lead { margin: 0 0 24px; color: var(--muted); }
+    section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    h2 { margin: 0 0 12px; font-size: 17px; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    input[type="text"], select {
+      flex: 1 1 320px;
+      min-width: 0;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--bg);
+      color: var(--text);
+      font: inherit;
+    }
+    select { flex: 0 1 auto; }
+    button {
+      padding: 10px 18px;
+      border: 0;
+      border-radius: 999px;
+      background: var(--accent);
+      color: var(--accent-text);
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button.secondary { background: transparent; color: var(--text); border: 1px solid var(--border); }
+    button:disabled { opacity: 0.4; cursor: default; }
+    .muted { color: var(--muted); font-size: 13px; }
+    .status { margin: 12px 0 0; padding: 10px 12px; border-radius: 8px; background: var(--bg); }
+    .status.error { color: var(--error); }
+    .status.ok { color: var(--ok); }
+    .table-wrap { max-height: 420px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; margin: 12px 0; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    th { position: sticky; top: 0; background: var(--surface); font-size: 13px; color: var(--muted); }
+    td.num { color: var(--muted); font-variant-numeric: tabular-nums; }
+    input.year {
+      width: 4.5em;
+      padding: 4px 6px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg);
+      color: var(--text);
+      font: inherit;
+      font-variant-numeric: tabular-nums;
+    }
+    ol { margin: 0; padding-left: 20px; }
+    label { display: inline-flex; gap: 6px; align-items: center; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Song Cards</h1>
+  <p class="lead">Turn a Spotify playlist into printable cards: a QR code on the front, artist, year and title on the back.</p>
+
+  <section>
+    <h2>1. Playlist</h2>
+    <div class="row">
+      <input type="text" id="playlist" placeholder="https://open.spotify.com/playlist/…" autocomplete="off">
+      <button id="load">Load songs</button>
+    </div>
+    <p class="muted" id="login-state"></p>
+    <p class="muted">Spotify only lets this app read playlists you own or collaborate on. For someone else's playlist, copy it first in Spotify with “⋯ → Add to other playlist → New playlist”.</p>
+    <p id="status" class="status" hidden></p>
+  </section>
+
+  <section id="tracks-section" hidden>
+    <h2>2. Check the songs</h2>
+    <p class="muted">Years come from the album release date. Remasters and compilations can show a later year, so fix any that look wrong before printing.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th></th><th>#</th><th>Title</th><th>Artist</th><th>Year</th></tr></thead>
+        <tbody id="track-rows"></tbody>
+      </table>
+    </div>
+    <div class="row">
+      <button class="secondary" id="select-all">Select / deselect all</button>
+      <span class="muted" id="count"></span>
+    </div>
+
+    <h2 style="margin-top:20px">3. Print</h2>
+    <div class="row">
+      <label>Duplex flip
+        <select id="flip">
+          <option value="long">Long edge (most printers)</option>
+          <option value="short">Short edge</option>
+        </select>
+      </label>
+      <label><input type="checkbox" id="cut-lines" checked> Cut lines</label>
+      <button id="generate">Download PDF</button>
+    </div>
+    <ol class="muted" style="margin-top:12px">
+      <li>Print double-sided, flipping on the edge you chose above.</li>
+      <li>Print at actual size (100%), not “fit to page”, so fronts and backs line up.</li>
+      <li>Each A4 sheet holds 12 cards of 6.5 × 6.5 cm. Cut along the lines.</li>
+    </ol>
+  </section>
+</main>
+<script src="lib/jspdf.umd.min.js"></script>
+<script src="lib/qrcode.min.js"></script>
+<script src="cards.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
