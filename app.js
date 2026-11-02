@@ -181,7 +181,9 @@ function updateLoginState() {
 
 async function init() {
   $("load").onclick = loadPlaylist;
-  $("playlist").onkeydown = (e) => e.key === "Enter" && loadPlaylist();
+  $("playlist").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") loadPlaylist();
+  });
   $("generate").onclick = generatePdf;
   $("select-all").onclick = () => {
     const all = tracks.every((t) => t.include);
