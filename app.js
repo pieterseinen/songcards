@@ -8,6 +8,7 @@ const SCOPES = "playlist-read-private playlist-read-collaborative";
 const $ = (id) => document.getElementById(id);
 let tracks = [];
 let playlistName = "playlist";
+let lookupSession = 0; // bumped to cancel running year lookups
 
 // ---------- auth ----------
 
@@ -84,6 +85,7 @@ async function loadPlaylist() {
   if (!id) return showStatus("That doesn't look like a Spotify playlist link.", "error");
   if (!token()) return login();
 
+  lookupSession++;
   showStatus("Loading playlist…");
   $("tracks-section").hidden = true;
   try {
@@ -97,13 +99,17 @@ async function loadPlaylist() {
         // Spotify renamed "track" to "item" in 2026; accept either.
         const t = row.item && typeof row.item === "object" ? row.item : row.track;
         if (!t || t.type !== "track" || row.is_local || !t.id) continue;
-        loaded.push({
+        const track = {
+          id: t.id,
           url: "https://open.spotify.com/track/" + t.id,
           title: t.name,
           artist: (t.artists || []).map((a) => a.name).join(", "),
-          year: (t.album?.release_date || "").slice(0, 4),
+          primaryArtist: t.artists?.[0]?.name || "",
+          spotifyYear: yearOf(t.album?.release_date),
           include: true,
-        });
+        };
+        restoreYears(track);
+        loaded.push(track);
       }
       next = page.next;
       showStatus(`Loading playlist… ${loaded.length} songs`);
@@ -111,6 +117,7 @@ async function loadPlaylist() {
     tracks = loaded;
     renderTracks();
     showStatus(`Loaded “${playlistName}” by ${meta.owner?.display_name || "unknown"}: ${tracks.length} songs.`, "ok");
+    startYearLookups();
   } catch (e) {
     if (e.status === 401) return login();
     if (e.status === 403) {
@@ -126,6 +133,80 @@ async function loadPlaylist() {
   }
 }
 
+// ---------- years ----------
+
+function betterYears() {
+  return $("better-years").checked;
+}
+
+function looked(track, source) {
+  return track[source.key] !== undefined || track[source.key + "Failed"];
+}
+
+/** The year printed on the card. */
+function cardYear(track) {
+  if (track.manualYear) return track.manualYear;
+  const year = betterYears() ? earliest([track.spotifyYear, track.itunesYear, track.mbYear]) : track.spotifyYear;
+  return year ? String(year) : "";
+}
+
+/** Why a row deserves a second look, or "" when it looks fine. */
+function checkReason(track) {
+  if (!betterYears() || track.manualYear || !YEAR_SOURCES.every((s) => looked(track, s))) return "";
+  const { itunesYear: it, mbYear: mb } = track;
+  if (typeof it !== "number" && typeof mb !== "number") return "Not found in iTunes or MusicBrainz, so this is Spotify's year.";
+  if (typeof it === "number" && typeof mb === "number" && Math.abs(it - mb) > 1) return "iTunes and MusicBrainz disagree.";
+  return "";
+}
+
+function startYearLookups() {
+  const session = ++lookupSession;
+  if (!betterYears()) return updateProgress();
+  for (const source of YEAR_SOURCES) runYearSource(source, session);
+  updateProgress();
+}
+
+async function runYearSource(source, session) {
+  for (const track of tracks) {
+    if (session !== lookupSession) return;
+    if (looked(track, source)) continue;
+    const started = Date.now();
+    try {
+      track[source.key] = await source.lookup(track);
+      rememberYears(track);
+    } catch {
+      // Not remembered, so it's retried the next time this song is loaded.
+      track[source.key + "Failed"] = true;
+    }
+    if (session !== lookupSession) return;
+    updateRow(track);
+    updateProgress();
+    await sleep(source.intervalMs - (Date.now() - started));
+  }
+}
+
+function updateProgress() {
+  const el = $("year-progress");
+  if (!betterYears() || tracks.length === 0) {
+    el.hidden = true;
+    return;
+  }
+  const parts = YEAR_SOURCES.map((s) => `${s.name} ${tracks.filter((t) => looked(t, s)).length}/${tracks.length}`);
+  const secondsLeft = Math.max(
+    ...YEAR_SOURCES.map((s) => (tracks.filter((t) => !looked(t, s)).length * s.intervalMs) / 1000),
+  );
+  const toCheck = tracks.filter((t) => checkReason(t)).length;
+  el.hidden = false;
+  if (secondsLeft > 0) {
+    const left = secondsLeft < 90 ? `${Math.ceil(secondsLeft)} s` : `${Math.ceil(secondsLeft / 60)} min`;
+    el.textContent = `Finding original years… ${parts.join(" · ")} · about ${left} left. You can already review rows or download.`;
+  } else {
+    el.textContent =
+      `Original years found for ${tracks.length} songs.` +
+      (toCheck ? ` ${toCheck} highlighted row${toCheck === 1 ? "" : "s"} could use a check.` : "");
+  }
+}
+
 // ---------- UI ----------
 
 function showStatus(text, kind = "") {
@@ -135,30 +216,65 @@ function showStatus(text, kind = "") {
   el.hidden = !text;
 }
 
+function sourceCell(track, source) {
+  if (track[source.key + "Failed"]) return "error";
+  if (track[source.key] === undefined) return "…";
+  return track[source.key] ?? "–";
+}
+
 function renderTracks() {
   const body = $("track-rows");
   body.replaceChildren();
   tracks.forEach((t, i) => {
     const row = document.createElement("tr");
     row.innerHTML = `
-      <td><input type="checkbox" ${t.include ? "checked" : ""} aria-label="Include"></td>
+      <td><input type="checkbox" aria-label="Include"></td>
       <td class="num">${i + 1}</td>
       <td></td>
       <td></td>
-      <td><input class="year" inputmode="numeric" maxlength="4" aria-label="Year"></td>`;
+      <td class="num source"></td>
+      <td class="num source"></td>
+      <td class="num source"></td>
+      <td><input class="year" inputmode="numeric" maxlength="4" aria-label="Year on card"></td>`;
     row.cells[2].textContent = t.title;
     row.cells[3].textContent = t.artist;
     const [include, year] = row.querySelectorAll("input");
-    year.value = t.year;
+    include.checked = t.include;
     include.onchange = () => {
       t.include = include.checked;
       updateCount();
     };
-    year.oninput = () => (t.year = year.value.trim());
+    year.oninput = () => {
+      t.manualYear = year.value.trim();
+      rememberManualYear(t);
+      updateRow(t);
+      updateProgress();
+    };
+    t.row = row;
+    updateRow(t);
     body.append(row);
   });
   $("tracks-section").hidden = false;
+  updateColumns();
   updateCount();
+}
+
+function updateRow(track) {
+  const row = track.row;
+  if (!row) return;
+  row.cells[4].textContent = track.spotifyYear ?? "–";
+  YEAR_SOURCES.forEach((source, i) => (row.cells[5 + i].textContent = sourceCell(track, source)));
+  const year = row.querySelector("input.year");
+  // The input shows the computed year as a placeholder; typing overrides it, clearing restores it.
+  year.placeholder = cardYear({ ...track, manualYear: "" }) || "?";
+  if (document.activeElement !== year) year.value = track.manualYear;
+  const reason = checkReason(track);
+  row.classList.toggle("check", !!reason);
+  row.title = reason;
+}
+
+function updateColumns() {
+  $("track-table").classList.toggle("spotify-only", !betterYears());
 }
 
 function updateCount() {
@@ -168,8 +284,21 @@ function updateCount() {
   $("generate").disabled = n === 0;
 }
 
+function onBetterYearsChange() {
+  try {
+    localStorage.setItem("better_years", betterYears() ? "1" : "0");
+  } catch {}
+  if (tracks.length) {
+    tracks.forEach(updateRow);
+    updateColumns();
+    startYearLookups();
+  }
+}
+
 function generatePdf() {
-  const chosen = tracks.filter((t) => t.include);
+  const chosen = tracks
+    .filter((t) => t.include)
+    .map((t) => ({ url: t.url, title: t.title, artist: t.artist, year: cardYear(t) }));
   const doc = buildCardsPdf(chosen, { flip: $("flip").value, cutLines: $("cut-lines").checked });
   const safeName = playlistName.replace(/[^\w\- ]+/g, "").trim() || "playlist";
   doc.save(`${safeName} - song cards.pdf`);
@@ -190,6 +319,10 @@ async function init() {
     tracks.forEach((t) => (t.include = !all));
     renderTracks();
   };
+  try {
+    $("better-years").checked = localStorage.getItem("better_years") !== "0";
+  } catch {}
+  $("better-years").onchange = onBetterYearsChange;
 
   const params = new URLSearchParams(location.search);
   history.replaceState(null, "", location.pathname);

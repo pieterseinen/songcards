@@ -15,6 +15,7 @@
       --accent-text: #0b0b0b;
       --error: #b3261e;
       --ok: #1a7f37;
+      --check: #fff4cc;
     }
     @media (prefers-color-scheme: dark) {
       :root {
@@ -25,6 +26,7 @@
         --border: #333;
         --error: #ff8a80;
         --ok: #6fdc8c;
+        --check: #3d3415;
       }
     }
     * { box-sizing: border-box; }
@@ -89,6 +91,23 @@
       font-variant-numeric: tabular-nums;
     }
     ol { margin: 0; padding-left: 20px; }
+    .option { margin: 16px 0 0; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; }
+    .option p { margin: 6px 0 0 26px; }
+    .switch-label input { width: 18px; height: 18px; accent-color: var(--accent); }
+    .badge {
+      display: inline-block;
+      margin-left: 4px;
+      padding: 1px 8px;
+      border-radius: 999px;
+      background: var(--accent);
+      color: var(--accent-text);
+      font-size: 12px;
+      font-weight: 600;
+    }
+    th.source, td.source { color: var(--muted); white-space: nowrap; }
+    .spotify-only .source { display: none; }
+    tr.check td { background: var(--check); }
+    input.year::placeholder { color: var(--text); opacity: 1; }
     label { display: inline-flex; gap: 6px; align-items: center; }
   </style>
 </head>
@@ -103,6 +122,23 @@
       <input type="text" id="playlist" placeholder="https://open.spotify.com/playlist/…" autocomplete="off">
       <button id="load">Load songs</button>
     </div>
+    <div class="option">
+      <label class="switch-label">
+        <input type="checkbox" id="better-years" checked>
+        <span><strong>Find original release years</strong> <span class="badge">Recommended</span></span>
+      </label>
+      <p class="muted">
+        Spotify dates each song by the album it's on, so songs from compilations and remasters often get the wrong
+        year, like a 1980 hit dated 2008 because it's on a "Best of". With this on, every song is also looked up in
+        Apple's iTunes catalog and the free MusicBrainz music database, and the earliest year found goes on the card.
+      </p>
+      <p class="muted">
+        Those services only allow a limited number of lookups per minute, so this takes about 3 seconds per song
+        (around 5 minutes for 100 songs). You can review and download while it runs. Results are remembered in this
+        browser, so loading the same songs again is instant. Song titles and artists are sent to Apple and
+        MusicBrainz for the lookup. Turn this off to use Spotify's dates right away.
+      </p>
+    </div>
     <p class="muted" id="login-state"></p>
     <p class="muted">Spotify only lets this app read playlists you own or collaborate on. For someone else's playlist, copy it first in Spotify with “⋯ → Add to other playlist → New playlist”.</p>
     <p id="status" class="status" hidden></p>
@@ -110,10 +146,15 @@
 
   <section id="tracks-section" hidden>
     <h2>2. Check the songs</h2>
-    <p class="muted">Years come from the album release date. Remasters and compilations can show a later year, so fix any that look wrong before printing.</p>
+    <p class="muted">Type in the <strong>Year on card</strong> column to correct a year; clear it to go back to the suggestion. Your corrections are remembered in this browser.</p>
+    <p id="year-progress" class="status" hidden></p>
     <div class="table-wrap">
-      <table>
-        <thead><tr><th></th><th>#</th><th>Title</th><th>Artist</th><th>Year</th></tr></thead>
+      <table id="track-table">
+        <thead><tr>
+          <th></th><th>#</th><th>Title</th><th>Artist</th>
+          <th class="source">Spotify</th><th class="source">iTunes</th><th class="source">MusicBrainz</th>
+          <th>Year on card</th>
+        </tr></thead>
         <tbody id="track-rows"></tbody>
       </table>
     </div>
@@ -143,6 +184,7 @@
 <script src="lib/jspdf.umd.min.js"></script>
 <script src="lib/qrcode.min.js"></script>
 <script src="cards.js"></script>
+<script src="years.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
